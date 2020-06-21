@@ -1,10 +1,12 @@
 use std::env::current_dir;
-use std::net::SocketAddr;
-use std::process::exit;
+use std::fmt;
+use std::io::{self, Read, Write};
+use std::net::{SocketAddr, TcpListener};
 
+use log::{debug, error, info, trace};
 use structopt::StructOpt;
 
-use kvs::{KvStore, KvsError, Result};
+use kvs::{KvStore, KvsError, Request, Response, Result};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -28,48 +30,93 @@ enum Engine {
     Sled,
 }
 
+impl fmt::Display for Engine {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            Self::Kvs => "kvs",
+            Self::Sled => "sled",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 impl std::str::FromStr for Engine {
-    type Err = std::io::Error;
+    type Err = io::Error;
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "kvs" => Ok(Engine::Kvs),
             "sled" => Ok(Engine::Sled),
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
                 "Engine must be one of ('kvs', 'sled')",
             )),
         }
     }
 }
 
+fn handle_request(req: Request) -> Result<Response> {
+    dbg!(&req);
+    match req {
+        Request::Get { key } => {
+            info!("[GET] {}", key);
+            let mut store = KvStore::open(current_dir()?)?;
+            if let Some(value) = store.get(key.to_string())? {
+                Ok(Response::Value(value))
+            } else {
+                error!("Key not found");
+                Ok(Response::Error(format!("Key '{}' not found", key)))
+            }
+        }
+        Request::Set { key, value } => {
+            info!("[SET] {} '{}'", key, value);
+            let mut store = KvStore::open(current_dir()?)?;
+            store.set(key.to_string(), value.to_string())?;
+            Ok(Response::Ok)
+        }
+        Request::Remove { key } => {
+            info!("[RM] {}", key);
+            let mut store = KvStore::open(current_dir()?)?;
+            match store.remove(key.to_string()) {
+                Ok(()) => Ok(Response::Ok),
+                Err(KvsError::KeyNotFound) => {
+                    error!("Key not found");
+                    Ok(Response::Error(format!("Key '{}' not found", key)))
+                }
+                Err(e) => Ok(Response::Error(e.to_string())),
+            }
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let args = Args::from_args();
-    dbg!(&args);
+    env_logger::init();
 
-    // match args.subcmd {
-    //     Command::Get { key } => {
-    //         let mut store = KvStore::open(current_dir()?)?;
-    //         if let Some(value) = store.get(key.to_string())? {
-    //             println!("{}", value);
-    //         } else {
-    //             println!("Key not found");
-    //         }
-    //     }
-    //     Command::Set { key, value } => {
-    //         let mut store = KvStore::open(current_dir()?)?;
-    //         store.set(key.to_string(), value.to_string())?;
-    //     }
-    //     Command::Remove { key } => {
-    //         let mut store = KvStore::open(current_dir()?)?;
-    //         match store.remove(key.to_string()) {
-    //             Ok(()) => {}
-    //             Err(KvsError::KeyNotFound) => {
-    //                 println!("Key not found");
-    //                 exit(1);
-    //             }
-    //             Err(e) => return Err(e),
-    //         }
-    //     }
-    // }
+    debug!(
+        "Starting server on '{}' using '{}' engine",
+        args.addr, args.engine
+    );
+
+    let listener = TcpListener::bind(args.addr)?;
+    for stream in listener.incoming() {
+        if let Ok(mut stream) = stream {
+            trace!("Incoming from {}", stream.peer_addr().unwrap());
+
+            let mut received = vec![];
+            let bytes_read = stream.read_to_end(&mut received)?;
+            trace!("Data [{} bytes]: {:?}", bytes_read, received);
+            match Request::deserialize(&received) {
+                Ok(req) => match handle_request(req).map_err(|e| error!("{}", e)) {
+                    Ok(resp) => {
+                        dbg!(&resp);
+                        stream.write(&resp.serialize()?)?;
+                        stream.flush()?;
+                    }
+                    Err(e) => error!("Invalid Request: {:?}", e),
+                },
+                Err(e) => error!("Invalid Request: {}", e),
+            }
+        }
+    }
     Ok(())
 }

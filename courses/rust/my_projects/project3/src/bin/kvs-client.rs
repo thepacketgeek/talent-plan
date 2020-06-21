@@ -1,10 +1,12 @@
 use std::env::current_dir;
-use std::net::SocketAddr;
+use std::io::{self, Read, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::process::exit;
 
+use log::trace;
 use structopt::StructOpt;
 
-use kvs::{KvStore, KvsError, Result};
+use kvs::{KvStore, KvsError, Request};
 
 #[derive(Debug, StructOpt)]
 pub enum Command {
@@ -32,33 +34,34 @@ struct Args {
     addr: SocketAddr,
 }
 
-fn main() -> Result<()> {
+fn send_request(addr: SocketAddr, req: &Request) -> io::Result<()> {
+    dbg!(&req);
+    let mut stream = TcpStream::connect(addr)?;
+    let bytes_sent = stream.write(&req.serialize()?)?;
+    stream.flush()?;
+    eprintln!("Sent {} bytes", bytes_sent);
+
+    let mut received = vec![];
+    stream.read(&mut received)?;
+    eprintln!("Received {} bytes", received.len());
+    Ok(())
+}
+
+fn main() -> Result<(), String> {
     let args = Args::from_args();
 
     match args.subcmd {
         Command::Get { key } => {
-            let mut store = KvStore::open(current_dir()?)?;
-            if let Some(value) = store.get(key.to_string())? {
-                println!("{}", value);
-            } else {
-                println!("Key not found");
-            }
+            let req = Request::Get { key };
+            send_request(args.addr, &req).map_err(|e| format!("Error fetching key: {}", e))
         }
         Command::Set { key, value } => {
-            let mut store = KvStore::open(current_dir()?)?;
-            store.set(key.to_string(), value.to_string())?;
+            let req = Request::Set { key, value };
+            send_request(args.addr, &req).map_err(|e| format!("Error setting key: {}", e))
         }
         Command::Remove { key } => {
-            let mut store = KvStore::open(current_dir()?)?;
-            match store.remove(key.to_string()) {
-                Ok(()) => {}
-                Err(KvsError::KeyNotFound) => {
-                    println!("Key not found");
-                    exit(1);
-                }
-                Err(e) => return Err(e),
-            }
+            let req = Request::Remove { key };
+            send_request(args.addr, &req).map_err(|e| format!("Error removing key: {}", e))
         }
     }
-    Ok(())
 }

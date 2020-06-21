@@ -6,7 +6,9 @@ description = "A key-value store"
 edition = "2018"
 
 [dependencies]
-anyhow = "1.0.28"
+byteorder = ""
+env_logger = ""
+log = ""
 thiserror = "1.0"
 structopt = "0.3.14"
 serde = { version = "1.0.89", features = ["derive"] }

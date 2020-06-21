@@ -1,0 +1,14 @@
+[package]
+name = "mini-redis-server"
+version = "0.1.0"
+authors = ["Mat Wood <mat@thepacketgeek.com>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "*"
+env_logger = "*"
+futures = "0.3"
+mini-redis-proto = { path = "../mini-redis-proto" }
+serde_json = "*"
+tokio = { version = "0.2", features = ["full"] }
+log = "*"

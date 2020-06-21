@@ -1,0 +1,9 @@
+[package]
+name = "mini-redis-proto"
+version = "0.1.0"
+authors = ["Mat Wood <mat@thepacketgeek.com>"]
+edition = "2018"
+
+[dependencies]
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"

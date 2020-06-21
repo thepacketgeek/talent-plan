@@ -1,5 +1,5 @@
-use thiserror::Error;
 use std::io;
+use thiserror::Error;
 
 /// Error type for kvs.
 #[derive(Error, Debug)]

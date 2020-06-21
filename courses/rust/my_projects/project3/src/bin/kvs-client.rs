@@ -1,4 +1,5 @@
 use std::env::current_dir;
+use std::net::SocketAddr;
 use std::process::exit;
 
 use structopt::StructOpt;
@@ -26,6 +27,9 @@ pub enum Command {
 struct Args {
     #[structopt(subcommand)]
     subcmd: Command,
+    /// Server listening address
+    #[structopt(long, default_value = "127.0.0.1:4000")]
+    addr: SocketAddr,
 }
 
 fn main() -> Result<()> {

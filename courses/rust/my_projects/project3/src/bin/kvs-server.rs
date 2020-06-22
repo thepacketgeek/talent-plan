@@ -6,7 +6,7 @@ use std::net::{SocketAddr, TcpListener};
 use log::{debug, error, info, trace};
 use structopt::StructOpt;
 
-use kvs::{KvStore, KvsError, Request, Response, Result};
+use kvs::{KvStore, KvsEngine, KvsError, Request, Response, Result, SledKvsEngine};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -54,11 +54,10 @@ impl std::str::FromStr for Engine {
     }
 }
 
-fn handle_request(req: Request) -> Result<Response> {
+fn handle_request(req: Request, store: &mut Box<dyn KvsEngine>) -> Result<Response> {
     match req {
         Request::Get { key } => {
             info!("[GET] {}", key);
-            let mut store = KvStore::open(current_dir()?)?;
             if let Some(value) = store.get(key.to_string())? {
                 Ok(Response::Value(value))
             } else {
@@ -68,13 +67,11 @@ fn handle_request(req: Request) -> Result<Response> {
         }
         Request::Set { key, value } => {
             info!("[SET] {} '{}'", key, value);
-            let mut store = KvStore::open(current_dir()?)?;
             store.set(key.to_string(), value.to_string())?;
             Ok(Response::Ok)
         }
         Request::Remove { key } => {
             info!("[RM] {}", key);
-            let mut store = KvStore::open(current_dir()?)?;
             match store.remove(key.to_string()) {
                 Ok(()) => Ok(Response::Ok),
                 Err(KvsError::KeyNotFound) => {
@@ -96,6 +93,17 @@ fn main() -> Result<()> {
         args.addr, args.engine
     );
 
+    let mut engine: Box<dyn KvsEngine> = match &args.engine {
+        Engine::Kvs => {
+            let store = KvStore::open(current_dir()?)?;
+            Box::new(store)
+        }
+        Engine::Sled => {
+            let store = SledKvsEngine::open(current_dir()?)?;
+            Box::new(store)
+        }
+    };
+
     let listener = TcpListener::bind(args.addr)?;
     for stream in listener.incoming() {
         if let Ok(stream) = stream {
@@ -105,7 +113,7 @@ fn main() -> Result<()> {
             let mut writer = BufWriter::new(stream);
 
             match Request::deserialize(&mut reader) {
-                Ok(req) => match handle_request(req).map_err(|e| error!("{}", e)) {
+                Ok(req) => match handle_request(req, &mut engine).map_err(|e| error!("{}", e)) {
                     Ok(resp) => {
                         writer.write_all(&resp.serialize()?)?;
                         writer.flush()?;

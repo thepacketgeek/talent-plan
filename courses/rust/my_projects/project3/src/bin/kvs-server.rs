@@ -16,12 +16,12 @@ use kvs::{KvStore, KvsEngine, KvsError, Request, Response, Result, SledKvsEngine
     author = env!("CARGO_PKG_AUTHORS"),
 )]
 struct Args {
-    /// Service listening address
-    #[structopt(long, default_value = "127.0.0.1:4000")]
-    addr: SocketAddr,
     /// Storage engine to use (["kvs", "sled"])
     #[structopt(long, default_value = "kvs")]
     engine: Engine,
+    /// Service listening address
+    #[structopt(long, default_value = "127.0.0.1:4000", global = true)]
+    addr: SocketAddr,
 }
 
 #[derive(Debug)]
@@ -93,12 +93,25 @@ fn main() -> Result<()> {
         args.addr, args.engine
     );
 
+    let cur_dir = current_dir()?;
     let mut engine: Box<dyn KvsEngine> = match &args.engine {
         Engine::Kvs => {
-            let store = KvStore::open(current_dir()?)?;
+            if SledKvsEngine::has_existing_files(&cur_dir)? {
+                return Err(KvsError::Io(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "Server was previously running with SledKvsEngine",
+                )));
+            }
+            let store = KvStore::open(cur_dir)?;
             Box::new(store)
         }
         Engine::Sled => {
+            if KvStore::has_existing_files(&cur_dir)? {
+                return Err(KvsError::Io(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "Server was previously running with KvStore",
+                )));
+            }
             let store = SledKvsEngine::open(current_dir()?)?;
             Box::new(store)
         }
@@ -113,12 +126,17 @@ fn main() -> Result<()> {
             let mut writer = BufWriter::new(stream);
 
             match Request::deserialize(&mut reader) {
-                Ok(req) => match handle_request(req, &mut engine).map_err(|e| error!("{}", e)) {
+                Ok(req) => match handle_request(req, &mut engine) {
                     Ok(resp) => {
                         writer.write_all(&resp.serialize()?)?;
                         writer.flush()?;
                     }
-                    Err(e) => error!("Invalid Request: {:?}", e),
+                    Err(e) => {
+                        error!("{}", e);
+                        let resp = Response::Error(e.to_string());
+                        writer.write_all(&resp.serialize()?)?;
+                        writer.flush()?;
+                    }
                 },
                 Err(e) => error!("Invalid Request: {}", e),
             }

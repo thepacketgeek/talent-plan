@@ -4,6 +4,7 @@ use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+use glob::glob;
 use serde::{Deserialize, Serialize};
 use serde_json::Deserializer;
 
@@ -44,6 +45,14 @@ pub struct KvStore {
 }
 
 impl KvStore {
+    /// Do existing log files exist at the given path?
+    pub fn has_existing_files(_path: impl Into<PathBuf>) -> std::io::Result<bool> {
+        for _entry in glob("./*.log").unwrap() {
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     /// Opens a `KvStore` with the given path.
     ///
     /// This will create a new directory if the given one does not exist.

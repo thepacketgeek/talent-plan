@@ -25,6 +25,22 @@ impl From<io::Error> for KvsError {
     }
 }
 
+impl From<sled::Error> for KvsError {
+    fn from(err: sled::Error) -> KvsError {
+        match err {
+            sled::Error::Io(err) => KvsError::Io(err),
+            sled::Error::Corruption { .. } => KvsError::Io(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Sled Data Corruption",
+            )),
+            e => KvsError::Io(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Sled Error: {}", e),
+            )),
+        }
+    }
+}
+
 impl From<serde_json::Error> for KvsError {
     fn from(err: serde_json::Error) -> KvsError {
         KvsError::Serde(err)

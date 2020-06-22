@@ -27,7 +27,7 @@ struct Args {
     #[structopt(subcommand)]
     subcmd: Command,
     /// Server listening address
-    #[structopt(long, default_value = "127.0.0.1:4000")]
+    #[structopt(long, default_value = "127.0.0.1:4000", global = true)]
     addr: SocketAddr,
 }
 
@@ -79,7 +79,7 @@ fn main() -> Result<(), String> {
     match resp {
         Response::Value(v) => println!("{}", v),
         Response::Ok => (),
-        Response::Error(err) => eprintln!("Error: {}", err),
+        Response::Error(err) => println!("{}", err),
     };
     Ok(())
 }

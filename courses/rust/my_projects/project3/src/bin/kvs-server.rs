@@ -1,6 +1,6 @@
 use std::env::current_dir;
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io::{self, BufReader, BufWriter, Write};
 use std::net::{SocketAddr, TcpListener};
 
 use log::{debug, error, info, trace};
@@ -55,7 +55,6 @@ impl std::str::FromStr for Engine {
 }
 
 fn handle_request(req: Request) -> Result<Response> {
-    dbg!(&req);
     match req {
         Request::Get { key } => {
             info!("[GET] {}", key);
@@ -63,7 +62,7 @@ fn handle_request(req: Request) -> Result<Response> {
             if let Some(value) = store.get(key.to_string())? {
                 Ok(Response::Value(value))
             } else {
-                error!("Key not found");
+                error!("Key '{}' not found", key);
                 Ok(Response::Error(format!("Key '{}' not found", key)))
             }
         }
@@ -79,7 +78,7 @@ fn handle_request(req: Request) -> Result<Response> {
             match store.remove(key.to_string()) {
                 Ok(()) => Ok(Response::Ok),
                 Err(KvsError::KeyNotFound) => {
-                    error!("Key not found");
+                    error!("Key '{}' not found", key);
                     Ok(Response::Error(format!("Key '{}' not found", key)))
                 }
                 Err(e) => Ok(Response::Error(e.to_string())),
@@ -99,18 +98,17 @@ fn main() -> Result<()> {
 
     let listener = TcpListener::bind(args.addr)?;
     for stream in listener.incoming() {
-        if let Ok(mut stream) = stream {
+        if let Ok(stream) = stream {
             trace!("Incoming from {}", stream.peer_addr().unwrap());
 
-            let mut received = vec![];
-            let bytes_read = stream.read_to_end(&mut received)?;
-            trace!("Data [{} bytes]: {:?}", bytes_read, received);
-            match Request::deserialize(&received) {
+            let mut reader = BufReader::new(stream.try_clone()?);
+            let mut writer = BufWriter::new(stream);
+
+            match Request::deserialize(&mut reader) {
                 Ok(req) => match handle_request(req).map_err(|e| error!("{}", e)) {
                     Ok(resp) => {
-                        dbg!(&resp);
-                        stream.write(&resp.serialize()?)?;
-                        stream.flush()?;
+                        writer.write_all(&resp.serialize()?)?;
+                        writer.flush()?;
                     }
                     Err(e) => error!("Invalid Request: {:?}", e),
                 },

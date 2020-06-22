@@ -1,5 +1,5 @@
 use std::convert::From;
-use std::io::{self, Cursor, Read, Write};
+use std::io::{self, Read, Write};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -59,24 +59,24 @@ impl Request {
         Ok(data)
     }
 
-    /// Deerialize Request to bytes (to receive from client)
-    pub fn deserialize(data: &[u8]) -> io::Result<Request> {
-        let mut cursor = Cursor::new(data);
-        match cursor.read_u8()? {
+    /// Deserialize Request to bytes (to receive from client)
+    pub fn deserialize(mut buf: &mut impl Read) -> io::Result<Request> {
+        // let mut cursor = Cursor::new(buf);
+        match buf.read_u8()? {
             // Get
             1 => {
-                let key = extract_string(&mut cursor)?;
+                let key = extract_string(&mut buf)?;
                 Ok(Request::Get { key })
             }
             // Set
             2 => {
-                let key = extract_string(&mut cursor)?;
-                let value = extract_string(&mut cursor)?;
+                let key = extract_string(&mut buf)?;
+                let value = extract_string(&mut buf)?;
                 Ok(Request::Set { key, value })
             }
             // Remove
             3 => {
-                let key = extract_string(&mut cursor)?;
+                let key = extract_string(&mut buf)?;
                 Ok(Request::Remove { key })
             }
             _ => Err(io::Error::new(
@@ -127,20 +127,19 @@ impl Response {
         Ok(data)
     }
 
-    /// Deerialize Response to bytes (to receive from server)
-    pub fn deserialize(data: &[u8]) -> io::Result<Response> {
-        let mut cursor = Cursor::new(data);
-        match cursor.read_u8()? {
+    /// Deserialize Response to bytes (to receive from server)
+    pub fn deserialize(mut buf: &mut impl Read) -> io::Result<Response> {
+        match buf.read_u8()? {
             // Value
             1 => {
-                let value = extract_string(&mut cursor)?;
+                let value = extract_string(&mut buf)?;
                 Ok(Response::Value(value))
             }
             // Ok
             2 => Ok(Response::Ok),
             // Error
             3 => {
-                let error = extract_string(&mut cursor)?;
+                let error = extract_string(&mut buf)?;
                 Ok(Response::Error(error))
             }
             _ => Err(io::Error::new(
@@ -152,9 +151,9 @@ impl Response {
 }
 
 /// From a given Cursor, read the next length (u16) and extract the string bytes
-fn extract_string(cursor: &mut Cursor<&[u8]>) -> io::Result<String> {
-    let length = cursor.read_u16::<BigEndian>()?;
+fn extract_string(buf: &mut impl Read) -> io::Result<String> {
+    let length = buf.read_u16::<BigEndian>()?;
     let mut bytes = vec![0u8; length as usize];
-    cursor.read_exact(&mut bytes)?;
+    buf.read_exact(&mut bytes)?;
     String::from_utf8(bytes).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid utf8"))
 }
